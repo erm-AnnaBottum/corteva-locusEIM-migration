@@ -17,22 +17,20 @@ p_load(
 options(scipen = 999)
 source("function.R")
 
-year <- "2019-2024"
-site <- "Cartagena"
-site_id <- "CTG"
+year <- "2012-2023"
+site <- "Barranquilla"
+site_id <- "BAQ"
 
+# set up file paths ####
 fol_main <- here::here()
-fol_data <- file.path(fol_main, "data", "EQuIS_to_EIM", site)
-fol_remaps <- file.path(fol_main, "data", "EQuIS_to_EIM",  "remapping")
-fol_edd <- file.path(fol_main, "data", "EDD_format_mappings")
-path_anl_edd <- here::here(fol_edd, "Corteva_EDD_Format_Best_Value_Desc.xlsx")
-path_fs_edd <- here::here(fol_edd, "Corteva_FieldSample_EDD_Format_Desc.xlsx")
-path_fm_edd <- here::here(fol_edd, "Corteva_Field_Meas-Added_Tech_EDD_Format_Desc.xlsx")
+fol_data <- file.path(fol_main, "data", site)
+fol_remaps <- file.path(fol_main, "data",  "remapping")
+path_anl_edd <- here::here(fol_remaps, "Corteva_EDD_Format_Best_Value_Desc.xlsx")
+path_fs_edd <- here::here(fol_remaps, "Corteva_FieldSample_EDD_Format_Desc.xlsx")
+path_fm_edd <- here::here(fol_remaps, "Corteva_Field_Meas-Added_Tech_EDD_Format_Desc.xlsx")
 
 # read in files ####
-#esbasic_in <- read_excel(file.path(fol_data, "Mercedes2023Results.CA_MERCEDES-SITE-AR.ESBasic_ERM.xlsx"), guess_max = 10000, sheet = 1)
-#esbasic_in <- read_excel(file.path(fol_data, "EQuIS_EDDs", paste0("Cartagena_", year, "_Data_ESBasic_ERM.xlsx")), guess_max = 10000, sheet = 2)
-lst_esbasic <- list.files(file.path(fol_data, "EQuIS_EDDs"), pattern = "*ESBasic_ERM.xlsx", full.names = TRUE)
+lst_esbasic <- list.files(file.path(fol_data, "ESBasic"), pattern = "*.xlsx", full.names = TRUE)
 esbasic_in <- lapply(lst_esbasic, function(x){
   df <- read_excel(x, sheet = 2, guess_max = 10000)
 }) %>%
@@ -88,8 +86,8 @@ lab_name_maps <- list(df_lab_name_remaps$EIM_lab_id) %>%
 names(esbasic_in) <- toupper(names(esbasic_in))
 esbasic <- esbasic_in %>%
   filter(
-    !str_detect(`#SYS_SAMPLE_CODE`, "MB |LCS |LCSD |LB"),
-    !str_detect(SAMPLE_TYPE_CODE, "SD|MS")
+    !str_detect(`#SYS_SAMPLE_CODE`, "MB |LCS |LCSD |LB|MS|MSD"),
+    !str_detect(SAMPLE_TYPE_CODE, "SD|MS|LR")
   ) %>%
   mutate(
     `#SYS_SAMPLE_CODE` = str_replace_all(`#SYS_SAMPLE_CODE`, ",", "."),
@@ -116,7 +114,8 @@ corteva_anl_edd_prep <- esbasic %>%
     ),
     LAB_REPORTING_LIMIT_TYPE = case_when(
       as.numeric(REPORTING_DETECTION_LIMIT) == as.numeric(METHOD_DETECTION_LIMIT) ~ "MDL",
-      as.numeric(REPORTING_DETECTION_LIMIT) == as.numeric(QUANTITATION_LIMIT) ~ "PQL"
+      as.numeric(REPORTING_DETECTION_LIMIT) == as.numeric(QUANTITATION_LIMIT) ~ "PQL",
+      TRUE ~ "PQL" #AECOM team confirmed that if detection limit is unknown, default to PQL
     ),
     ANALYSIS_TYPE_CODE = case_when(
       TEST_TYPE == "(?i)INITIAL" ~ "INIT",
@@ -135,29 +134,24 @@ corteva_anl_edd_prep <- esbasic %>%
     ORIGINAL_LAB_RESULT = LAB_RESULT,
     LAB_MATRIX = case_when(
       grepl("W", SAMPLE_MATRIX_CODE) ~ "LIQUID",
+      SAMPLE_MATRIX_CODE == "LO" ~ "LIQUID",
       grepl("S", SAMPLE_MATRIX_CODE) ~ "SOLID",
       grepl("A", SAMPLE_MATRIX_CODE) ~ "AIR"
     ),
     SAMPLE_TIME = format(as.POSIXct(SAMPLE_TIME, format = "%H:%M:%S"), "%H:%M"),
     ANALYSIS_TIME = format(as.POSIXct(ANALYSIS_TIME, format = "%H:%M:%S"), "%H:%M"),
     PREP_TIME = format(as.POSIXct(PREP_TIME, format = "%H:%M:%S"), "%H:%M"),
-    # RESULT_TYPE_CODE = case_when(
-    #   CHEMICAL_NAME == "Tolueno-d8" | CHEMICAL_NAME == "p-Bromofluorobenceno" |
-    #     CHEMICAL_NAME == "p-Terphenyl-d14" ~ "SUR",
-    #   TRUE ~ "TRG"
-    # ),
     method_check = LAB_ANL_METHOD_NAME,
     units_check = RESULT_UNIT,
     temp_anl_meth = LAB_ANL_METHOD_NAME,
-    temp_units = RESULT_UNIT
+    temp_units = RESULT_UNIT,
+    temp_lab = LAB_NAME_CODE
   ) %>%
   rename(
     LAB_ID = LAB_NAME_CODE,
-    #mdl = METHOD_DETECTION_LIMIT,
     ANALYTICAL_METHOD = LAB_ANL_METHOD_NAME,
     PARAMETER_CODE = CAS_RN,
     LAB_UNITS = RESULT_UNIT,
-    #METHOD_DETECTION_LIMIT = REPORTING_DETECTION_LIMIT,
     prelim_matrix_code = SAMPLE_MATRIX_CODE,
     PREP_METHOD = LAB_PREP_METHOD_NAME,
     PARAMETER_NAME = CHEMICAL_NAME,
@@ -170,15 +164,28 @@ corteva_anl_edd_prep$PARAMETER_CODE <- cas_maps[corteva_anl_edd_prep$PARAMETER_C
 corteva_anl_edd_prep$LAB_UNITS <- unit_maps[corteva_anl_edd_prep$LAB_UNITS]
 corteva_anl_edd_prep$LAB_ID <- lab_name_maps[corteva_anl_edd_prep$LAB_ID]
 
+corteva_anl_edd_prep$PARAMETER_CODE[corteva_anl_edd_prep$PARAMETER_NAME == "Picloram"] <- "1918-02-1"
+
 corteva_anl_edd <- corteva_anl_edd_prep %>%
   filter(
     !str_detect(PARAMETER_NAME, "Field"),
     RESULT_TYPE_CODE == "TRG"
   ) %>%
   add_edd_columns(path_anl_edd, "Sheet0")
-  
 
-write.xlsx(corteva_anl_edd, file.path(fol_data, "EIM_EDDs", paste0(site,"_", year, "-Analytical.", site_id, ".Corteva_EDD_Format_Best_Value.xlsx")))
+#batch edds if necessary to fit EIM's 15000-row loading max
+if (nrow(corteva_anl_edd) > 14000) {
+  max_rows <- 14000
+  rows <- nrow(corteva_anl_edd)
+  batch_size <- rep(1:ceiling(rows/max_rows), each = max_rows)[1:rows]
+  batch_df <- split(corteva_anl_edd, batch_size)
+  
+  lapply(1:length(batch_df), function(x){
+    write.xlsx(batch_df[x], file.path(fol_data, "EIM_EDDs", paste0("pt", x, "-", length(batch_df), "_", site,"_", year, "-Analytical.", site_id, ".Corteva_EDD_Format_Best_Value.xlsx")))
+  })
+} else {
+  write.xlsx(corteva_anl_edd, file.path(fol_data, "EIM_EDDs", paste0("pt1-1_", site,"_", year, "-Analytical.", site_id, ".Corteva_EDD_Format_Best_Value.xlsx")))
+}
 
 # create Corteva_FieldSample EDD format to load task codes and sample info ####
 #this EDD is considered the COC info EDD and is filled out for ALL results,
@@ -227,7 +234,8 @@ corteva_fs_edd_prep <- esbasic %>%
       grepl("SO", SAMPLE_MATRIX_CODE) ~ "Soil",
       grepl("SQ", SAMPLE_MATRIX_CODE) ~ "Soil",
       SAMPLE_MATRIX_CODE == "A" ~ "Air",
-      SAMPLE_MATRIX_CODE == "AF" ~ "Sub-Slab"
+      SAMPLE_MATRIX_CODE == "AF" ~ "Sub-Slab",
+      SAMPLE_MATRIX_CODE == "LO" ~ "Oil"
     ),
     FIELD_PREPARATION_CODE = case_when(
       FRACTION == "D" ~ "D",
