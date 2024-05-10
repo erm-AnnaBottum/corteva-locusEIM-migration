@@ -15,11 +15,11 @@ p_load(
   data.table
 )
 options(scipen = 999)
-source("function.R")
+source("source/function.R")
 
-year <- "2012-2023"
-site <- "Barranquilla"
-site_id <- "BAQ"
+year <- "2022"
+site <- "Reynosa"
+site_id <- "REY"
 
 # set up file paths ####
 fol_main <- here::here()
@@ -159,7 +159,9 @@ corteva_anl_edd_prep <- esbasic %>%
   )
 
 corteva_anl_edd_prep$ANALYTICAL_METHOD <- anl_meth_maps[corteva_anl_edd_prep$ANALYTICAL_METHOD]
-corteva_anl_edd_prep$PREP_METHOD <- prep_meth_maps[corteva_anl_edd_prep$PREP_METHOD]
+if(sum(!is.na(corteva_anl_edd_prep$PREP_METHOD))){
+  corteva_anl_edd_prep$PREP_METHOD <- prep_meth_maps[corteva_anl_edd_prep$PREP_METHOD]
+}
 corteva_anl_edd_prep$PARAMETER_CODE <- cas_maps[corteva_anl_edd_prep$PARAMETER_CODE]
 corteva_anl_edd_prep$LAB_UNITS <- unit_maps[corteva_anl_edd_prep$LAB_UNITS]
 corteva_anl_edd_prep$LAB_ID <- lab_name_maps[corteva_anl_edd_prep$LAB_ID]
